@@ -32,3 +32,10 @@ type ScaleHost struct {
 	DeleteOption   string            `json:"deleteOption,omitempty" mapstructure:"deleteOption"`
 	Type           string            `json:"type,omitempty" mapstructure:"type"`
 }
+
+type DeploymentUpdate struct {
+	Tag       string `json:"tag,omitempty" mapstructure:"tag"`
+	Namespace string `json:"namespace" mapstructure:"namespace"`
+	Name      string `json:"name" mapstructure:"name"`
+	Type      string `json:"type,omitempty" mapstructure:"type"`
+}
