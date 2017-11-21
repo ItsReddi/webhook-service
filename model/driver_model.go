@@ -38,4 +38,5 @@ type DeploymentUpdate struct {
 	Namespace string `json:"namespace" mapstructure:"namespace"`
 	Name      string `json:"name" mapstructure:"name"`
 	Type      string `json:"type,omitempty" mapstructure:"type"`
+	Env       string `json:"env",omitempty mapstructure:"env"`
 }
