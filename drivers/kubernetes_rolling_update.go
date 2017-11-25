@@ -1,17 +1,11 @@
 package drivers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
-	// "regexp"
-	"bytes"
-	"encoding/json"
-	"io/ioutil"
-	"strings"
-	"time"
 
-	// log "github.com/Sirupsen/logrus"
+	log "github.com/Sirupsen/logrus"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 	v1client "github.com/rancher/go-rancher/client"
@@ -19,8 +13,10 @@ import (
 	rConfig "github.com/rancher/webhook-service/config"
 	"github.com/rancher/webhook-service/model"
 
-	"k8s.io/api/apps/v1beta1"
-	"k8s.io/api/core/v1"
+	v1Get "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/pkg/api/v1"
+	v1beta1 "k8s.io/client-go/pkg/apis/apps/v1beta1"
 )
 
 // var regTag = regexp.MustCompile(`^[\w]+[\w.-]*`)
@@ -62,11 +58,6 @@ func (d *DeploymentUpdateDriver) Execute(conf interface{}, apiClient *client.Ran
 		return http.StatusInternalServerError, errors.Wrap(err, "Couldn't unmarshal config")
 	}
 
-	// requestedTag := config.Tag
-	// if requestPayload == nil {
-	// 	return http.StatusBadRequest, fmt.Errorf("No Payload recevied from webhook")
-	// }
-
 	requestBody, ok := requestPayload.(map[string]interface{})
 	if !ok {
 		return http.StatusBadRequest, fmt.Errorf("Body should be of type map[string]interface{}")
@@ -92,63 +83,22 @@ func (d *DeploymentUpdateDriver) Execute(conf interface{}, apiClient *client.Ran
 		return http.StatusBadRequest, fmt.Errorf("Response provided without image name")
 	}
 	pushedImage := imageName + ":" + pushedTag
-	fmt.Printf("pushedImage: %s\n", pushedImage)
-	k8sURL := "/apis/apps/v1beta1/namespaces/" + config.Namespace + "/deployments/" + config.Name
-	cattleConfig := rConfig.GetConfig()
-	cattleURL := cattleConfig.CattleURL
-	u, err := url.Parse(cattleURL)
+	log.Infof("Pushed image: %s", pushedImage)
+
+	clientSet := rConfig.KubeClientSet
+	currDepl, err := clientSet.AppsV1beta1().Deployments(config.Namespace).Get(config.Name, v1Get.GetOptions{})
 	if err != nil {
-		panic(err)
-	}
-	cattleURL = strings.Split(cattleURL, u.Path)[0] + "/r/projects/" + config.Env + "/kubernetes:6443"
-	k8sURL = cattleURL + k8sURL
-
-	httpClient := &http.Client{
-		Timeout: time.Second * 10,
+		return http.StatusBadRequest, fmt.Errorf("Error in getting current deployment: %v", err)
 	}
 
-	request, err := http.NewRequest("GET", k8sURL, nil)
-	if err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("Error creating request to get host: %v", err)
-	}
-	fmt.Printf("k8sURL: %s\n", k8sURL)
+	newC := currDepl.Spec.Template.Spec.Containers[0]
+	newC.Image = pushedImage
 
-	// request.SetBasicAuth(cattleConfig.CattleAccessKey, cattleConfig.CattleSecretKey)
-	resp, err := httpClient.Do(request)
-	if err != nil {
-		return http.StatusInternalServerError, err
-	}
-	defer resp.Body.Close()
-
-	respBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return http.StatusInternalServerError, err
-	}
-
-	depl := v1beta1.Deployment{}
-
-	err = json.Unmarshal(respBytes, &depl)
-	if err != nil {
-		return http.StatusInternalServerError, err
-	}
-
-	fmt.Printf("depl: %v\n", depl)
-
-	cs := depl.Spec.Template.Spec.Containers
-	newC := &v1.Container{}
-	for _, c := range cs{
-		if c.Name == config.Name {
-			newC = c.DeepCopy()
-			newC.Image = pushedImage
-		}
-	}
-
-	csPatch := []v1.Container{}
 	newDepl := v1beta1.Deployment{
 		Spec: v1beta1.DeploymentSpec{
 			Template: v1.PodTemplateSpec{
-				Spec:v1.PodSpec{
-					Containers: append(csPatch, *newC),
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{newC},
 				},
 			},
 		},
@@ -156,23 +106,16 @@ func (d *DeploymentUpdateDriver) Execute(conf interface{}, apiClient *client.Ran
 
 	jsonBody, err := json.Marshal(newDepl)
 	if err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("Error in marshaling")
+		return http.StatusInternalServerError, fmt.Errorf("Error in marshaling: %v", err)
 	}
 
-
-	request, err = http.NewRequest("PATCH", k8sURL, bytes.NewBuffer([]byte(jsonBody)))
+	log.Infof("Making patch request to update image")
+	_, err = clientSet.AppsV1beta1().Deployments(config.Namespace).Patch(config.Name, types.StrategicMergePatchType, []byte(jsonBody))
 	if err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("Error creating patch request: %v", err)
+		return http.StatusInternalServerError, fmt.Errorf("Error in updating deployment: %v", err)
 	}
-	request.Header.Add("Content-Type", "application/strategic-merge-patch+json")
 
-	// request.SetBasicAuth(cattleConfig.CattleAccessKey, cattleConfig.CattleSecretKey)
-	resp, err = httpClient.Do(request)
-	if err != nil {
-		return http.StatusInternalServerError, err
-	}
-	defer resp.Body.Close()
-
+	log.Infof("Deployment %s updated", config.Name)
 	return http.StatusOK, nil
 }
 
@@ -201,24 +144,3 @@ func (d *DeploymentUpdateDriver) GetDriverConfigResource() interface{} {
 func (d *DeploymentUpdateDriver) CustomizeSchema(schema *v1client.Schema) *v1client.Schema {
 	return schema
 }
-
-//	jsonBody := `{
-//	"spec": {
-//		"template": {
-//			"spec": {
-//				"containers": [
-//				{
-//					"name": "nginx",
-//		            "image": "mrajashree/nginx:latest",
-//		            "ports": [
-//		              {
-//		                "containerPort": 80,
-//		                "protocol": "TCP"
-//		              }
-//		            ]
-//				}
-//				]
-//			}
-//		}
-//	}
-//}`

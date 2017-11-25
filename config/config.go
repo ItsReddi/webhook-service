@@ -2,6 +2,10 @@ package config
 
 import (
 	"os"
+
+	log "github.com/Sirupsen/logrus"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 type Config struct {
@@ -18,4 +22,22 @@ func GetConfig() Config {
 	}
 
 	return config
+}
+
+var KubeClientSet *kubernetes.Clientset
+
+func InitializeK8sClientSet(kubeconfig *string) *kubernetes.Clientset {
+	log.Infof("Generating kubeconfig")
+	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	KubeClientSet = clientset
+	return clientset
 }

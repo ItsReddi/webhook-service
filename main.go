@@ -1,11 +1,13 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/rancher/webhook-service/config"
 	"github.com/rancher/webhook-service/drivers"
 	"github.com/rancher/webhook-service/service"
 	"github.com/urfave/cli"
@@ -47,6 +49,13 @@ func main() {
 			),
 			EnvVar: "RSA_PRIVATE_KEY_CONTENTS",
 		},
+		cli.StringFlag{
+			Name: "kubeconfig",
+			Usage: fmt.Sprintf(
+				"Path to kubeconfig",
+			),
+			EnvVar: "KUBECONFIG",
+		},
 	}
 	app.Run(os.Args)
 }
@@ -64,6 +73,18 @@ func StartWebhook(c *cli.Context) {
 		ClientFactory: &service.ClientFactory{},
 	}
 	router := service.NewRouter(rh)
+
+	kubeconfig := flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	flag.Parse()
+	if kubeconfig != nil {
+		if _, err := os.Stat(*kubeconfig); os.IsNotExist(err) {
+			log.Infof("kubeconfig path provided but file not found")
+			goto start
+		}
+		config.InitializeK8sClientSet(kubeconfig)
+	}
+
+start:
 	log.Infof("Webhook service listening on 8085")
 	log.Fatal(http.ListenAndServe(":8085", router))
 }
