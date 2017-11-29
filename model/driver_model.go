@@ -34,7 +34,6 @@ type ScaleHost struct {
 }
 
 type DeploymentUpdate struct {
-	Tag       string `json:"tag,omitempty" mapstructure:"tag"`
 	Namespace string `json:"namespace" mapstructure:"namespace"`
 	Name      string `json:"name" mapstructure:"name"`
 	Type      string `json:"type,omitempty" mapstructure:"type"`

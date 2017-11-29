@@ -19,8 +19,6 @@ import (
 	v1beta1 "k8s.io/client-go/pkg/apis/apps/v1beta1"
 )
 
-// var regTag = regexp.MustCompile(`^[\w]+[\w.-]*`)
-
 type DeploymentUpdateDriver struct {
 }
 
@@ -30,21 +28,12 @@ func (d *DeploymentUpdateDriver) ValidatePayload(conf interface{}, apiClient *cl
 		return http.StatusInternalServerError, fmt.Errorf("Can't process config")
 	}
 
-	if config.Tag == "" {
-		return http.StatusBadRequest, fmt.Errorf("Tag not provided")
-	}
-
 	if config.Name == "" {
 		return http.StatusBadRequest, fmt.Errorf("Name not provided")
 	}
 
 	if config.Namespace == "" {
 		return http.StatusBadRequest, fmt.Errorf("Namespace not provided")
-	}
-
-	err := IsValidTag(config.Tag)
-	if err != nil {
-		return http.StatusBadRequest, err
 	}
 
 	return http.StatusOK, nil
@@ -83,7 +72,7 @@ func (d *DeploymentUpdateDriver) Execute(conf interface{}, apiClient *client.Ran
 		return http.StatusBadRequest, fmt.Errorf("Response provided without image name")
 	}
 	pushedImage := imageName + ":" + pushedTag
-	log.Infof("Pushed image: %s", pushedImage)
+	log.Infof("[Webhook-service] Pushed image: %s", pushedImage)
 
 	clientSet := rConfig.KubeClientSet
 	currDepl, err := clientSet.AppsV1beta1().Deployments(config.Namespace).Get(config.Name, v1Get.GetOptions{})
@@ -92,8 +81,8 @@ func (d *DeploymentUpdateDriver) Execute(conf interface{}, apiClient *client.Ran
 	}
 
 	newC := currDepl.Spec.Template.Spec.Containers[0]
-	newC.Image = pushedImage
 
+	newC.Image = pushedImage
 	newDepl := v1beta1.Deployment{
 		Spec: v1beta1.DeploymentSpec{
 			Template: v1.PodTemplateSpec{
@@ -109,13 +98,13 @@ func (d *DeploymentUpdateDriver) Execute(conf interface{}, apiClient *client.Ran
 		return http.StatusInternalServerError, fmt.Errorf("Error in marshaling: %v", err)
 	}
 
-	log.Infof("Making patch request to update image")
-	_, err = clientSet.AppsV1beta1().Deployments(config.Namespace).Patch(config.Name, types.StrategicMergePatchType, []byte(jsonBody))
+	log.Infof("[Webhook-service] Making patch request to update image")
+	_, err = clientSet.AppsV1beta1().Deployments(config.Namespace).Patch(config.Name, types.MergePatchType, []byte(jsonBody))
 	if err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("Error in updating deployment: %v", err)
 	}
 
-	log.Infof("Deployment %s updated", config.Name)
+	log.Infof("[Webhook-service] Deployment %s updated", config.Name)
 	return http.StatusOK, nil
 }
 

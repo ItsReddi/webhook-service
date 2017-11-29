@@ -1,0 +1,26 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: kube-r-update
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kube-r-update
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  minReadySeconds: 5
+  template:
+    metadata:
+      labels:
+        app: kube-r-update
+    spec:
+      containers:
+      - name: kube-r-update
+        image: mrajashree/kube:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
